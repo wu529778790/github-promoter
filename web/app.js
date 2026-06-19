@@ -318,7 +318,52 @@ function escapeHtml(text) {
 }
 
 // ============================================================
+// 主题切换
+// ============================================================
+
+function initTheme() {
+  // 1. 优先使用 localStorage 中保存的偏好
+  const saved = localStorage.getItem('theme');
+  if (saved) {
+    applyTheme(saved);
+    return;
+  }
+
+  // 2. 跟随系统偏好
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+  applyTheme(prefersDark.matches ? 'dark' : 'light');
+
+  // 监听系统主题变化
+  prefersDark.addEventListener('change', (e) => {
+    if (!localStorage.getItem('theme')) {
+      applyTheme(e.matches ? 'dark' : 'light');
+    }
+  });
+}
+
+function toggleTheme() {
+  const current = document.documentElement.classList.contains('light') ? 'light' : 'dark';
+  const next = current === 'light' ? 'dark' : 'light';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+
+  if (theme === 'light') {
+    root.classList.add('light');
+    if (btn) btn.textContent = '☀️';
+  } else {
+    root.classList.remove('light');
+    if (btn) btn.textContent = '🌙';
+  }
+}
+
+// ============================================================
 // 初始化
 // ============================================================
 
+initTheme();
 loadDashboard();
