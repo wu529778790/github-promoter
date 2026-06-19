@@ -160,6 +160,8 @@ export class ParallelSender {
    * 启动并行发送
    */
   async start(limit?: number): Promise<void> {
+    const product = this.config.email_content.product_name;
+
     // 读取邮箱列表
     const emails = this.loadEmails();
     if (emails.length === 0) {
@@ -168,10 +170,11 @@ export class ParallelSender {
     }
 
     console.log(`📧 待发送: ${emails.length} 个邮箱`);
+    console.log(`📦 推广产品: ${product}`);
 
-    // 过滤已发送的
-    const pending = emails.filter(e => !this.progress.isSent(e.email));
-    console.log(`📬 剩余: ${pending.length} 个邮箱`);
+    // 过滤已发送的（按产品去重）
+    const pending = emails.filter(e => !this.progress.isSent(e.email, product));
+    console.log(`📬 剩余: ${pending.length} 个邮箱 (已为 "${product}" 发送过 ${emails.length - pending.length} 个)`);
 
     if (pending.length === 0) {
       console.log('✅ 所有邮件已发送完毕');
@@ -240,11 +243,23 @@ export class ParallelSender {
    */
   showStatus(): void {
     const snapshot = this.progress.getSnapshot();
+    const productStats = this.progress.getAllProductStats();
+    const currentProduct = this.config.email_content.product_name;
+
     console.log('📊 发送状态:\n');
+    console.log(`   📦 当前产品: ${currentProduct}`);
     console.log(`   📧 总计: ${snapshot.total}`);
     console.log(`   ✅ 已发送: ${snapshot.sent}`);
     console.log(`   ❌ 失败: ${snapshot.failed}`);
     console.log(`   📬 剩余: ${snapshot.remaining}`);
+
+    // 各产品发送统计
+    if (Object.keys(productStats).length > 0) {
+      console.log('\n   各产品发送记录:');
+      for (const [product, count] of Object.entries(productStats)) {
+        console.log(`   - ${product}: ${count} 个邮箱`);
+      }
+    }
 
     if (Object.keys(snapshot.senderStats).length > 0) {
       console.log('\n   发件人详情:');
@@ -266,6 +281,7 @@ export class ParallelSender {
     emails: { email: string; name: string }[],
     senders: SenderConfig[]
   ): Promise<void> {
+    const product = this.config.email_content.product_name;
     let currentIndex = 0;
 
     // 为每个发件人创建工作循环
@@ -299,7 +315,7 @@ export class ParallelSender {
         // DRY RUN
         if (this.config.debug.dry_run) {
           console.log(`🧪 [DRY RUN] 跳过: ${emailData.email} (${sender.name})`);
-          this.progress.markSent(emailData.email, sender.name);
+          this.progress.markSent(emailData.email, sender.name, product);
           continue;
         }
 
@@ -312,16 +328,16 @@ export class ParallelSender {
 
         if (result.success) {
           console.log(`✅ ${sender.name} → ${emailData.email}`);
-          this.progress.markSent(emailData.email, sender.name);
+          this.progress.markSent(emailData.email, sender.name, product);
         } else if (result.error?.startsWith('RATE_LIMIT:')) {
           console.log(`⏸️ ${sender.name} 触发限流，暂停 12 小时`);
           this.progress.setSenderPaused(sender.name, true, Date.now() + 12 * 60 * 60 * 1000);
-          this.progress.markFailed(emailData.email, sender.name, 'rate_limited');
+          this.progress.markFailed(emailData.email, sender.name, product, 'rate_limited');
           // 把邮箱放回队列
           currentIndex--;
         } else {
           console.log(`❌ ${sender.name} → ${emailData.email}: ${result.error}`);
-          this.progress.markFailed(emailData.email, sender.name, result.error || 'unknown');
+          this.progress.markFailed(emailData.email, sender.name, product, result.error || 'unknown');
         }
 
         // 定期保存进度

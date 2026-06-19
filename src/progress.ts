@@ -3,6 +3,8 @@
  *
  * 双写持久化：progress.json（快速查询）+ sent_emails.csv（持久记录）
  * 启动时从 CSV 重建已发送集合，防止重复发送
+ *
+ * 支持按产品去重：同一个邮箱推广不同产品可以重复发，同一产品不会重复发
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
@@ -24,15 +26,6 @@ export interface SenderStats {
   pausedUntil: number | null;
 }
 
-export interface ProgressData {
-  /** 已发送的邮箱集合（快速查找） */
-  sentEmails: Set<string>;
-  /** 每个发件人的统计 */
-  senderStats: Map<string, SenderStats>;
-  /** 总计 */
-  total: number;
-}
-
 export interface ProgressSnapshot {
   sent: number;
   failed: number;
@@ -46,7 +39,11 @@ export interface ProgressSnapshot {
 // ============================================================
 
 export class ProgressManager {
-  private sentEmails: Set<string>;
+  /**
+   * 按产品分组的已发送邮箱集合
+   * key: product name, value: Set of emails
+   */
+  private sentByProduct: Map<string, Set<string>>;
   private senderStats: Map<string, SenderStats>;
   private total: number;
   private dataDir: string;
@@ -55,7 +52,7 @@ export class ProgressManager {
   private sentLogFile: string;
 
   constructor(dataDir?: string) {
-    this.sentEmails = new Set();
+    this.sentByProduct = new Map();
     this.senderStats = new Map();
     this.total = 0;
     this.dataDir = dataDir || DEFAULT_DATA_DIR;
@@ -73,8 +70,14 @@ export class ProgressManager {
   /**
    * 标记邮件已发送
    */
-  markSent(email: string, senderName: string): void {
-    this.sentEmails.add(email);
+  markSent(email: string, senderName: string, product: string): void {
+    // 按产品记录
+    let productSet = this.sentByProduct.get(product);
+    if (!productSet) {
+      productSet = new Set();
+      this.sentByProduct.set(product, productSet);
+    }
+    productSet.add(email);
 
     // 更新发件人统计
     const stats = this.senderStats.get(senderName) || { sent: 0, failed: 0, paused: false, pausedUntil: null };
@@ -82,25 +85,46 @@ export class ProgressManager {
     this.senderStats.set(senderName, stats);
 
     // 写入 CSV
-    this.appendToSentCsv(email, senderName, 'sent');
+    this.appendToSentCsv(email, senderName, product, 'sent');
   }
 
   /**
    * 标记邮件发送失败
    */
-  markFailed(email: string, senderName: string, reason: string): void {
+  markFailed(email: string, senderName: string, product: string, reason: string): void {
     const stats = this.senderStats.get(senderName) || { sent: 0, failed: 0, paused: false, pausedUntil: null };
     stats.failed++;
     this.senderStats.set(senderName, stats);
 
-    this.appendToSentCsv(email, senderName, `failed: ${reason}`);
+    this.appendToSentCsv(email, senderName, product, `failed: ${reason}`);
   }
 
   /**
-   * 检查邮件是否已发送
+   * 检查邮件是否已发送给某个产品
+   * 只有同一产品才去重，不同产品可以重复发送
    */
-  isSent(email: string): boolean {
-    return this.sentEmails.has(email);
+  isSent(email: string, product: string): boolean {
+    const productSet = this.sentByProduct.get(product);
+    return productSet ? productSet.has(email) : false;
+  }
+
+  /**
+   * 获取某个产品的已发送数量
+   */
+  getSentCount(product: string): number {
+    const productSet = this.sentByProduct.get(product);
+    return productSet ? productSet.size : 0;
+  }
+
+  /**
+   * 获取所有产品的发送统计
+   */
+  getAllProductStats(): Record<string, number> {
+    const stats: Record<string, number> = {};
+    for (const [product, emails] of this.sentByProduct) {
+      stats[product] = emails.size;
+    }
+    return stats;
   }
 
   /**
@@ -141,7 +165,12 @@ export class ProgressManager {
    * 获取快照
    */
   getSnapshot(): ProgressSnapshot {
-    const sent = this.sentEmails.size;
+    // 总共发送数 = 所有产品的发送数之和
+    let sent = 0;
+    for (const emails of this.sentByProduct.values()) {
+      sent += emails.size;
+    }
+
     let failed = 0;
     for (const stats of this.senderStats.values()) {
       failed += stats.failed;
@@ -165,8 +194,14 @@ export class ProgressManager {
    * 持久化进度
    */
   save(): void {
+    // 转换为可序列化的格式
+    const sentByProductObj: Record<string, string[]> = {};
+    for (const [product, emails] of this.sentByProduct) {
+      sentByProductObj[product] = Array.from(emails);
+    }
+
     const data = {
-      sentEmails: Array.from(this.sentEmails),
+      sentByProduct: sentByProductObj,
       total: this.total,
       timestamp: new Date().toISOString(),
     };
@@ -188,8 +223,18 @@ export class ProgressManager {
         const lines = csv.split('\n').slice(1); // 跳过标题行
         for (const line of lines) {
           if (!line.trim()) continue;
-          const [email] = line.split(',');
-          if (email) this.sentEmails.add(email.replace(/"/g, '').trim());
+          const parts = line.split(',').map(s => s.replace(/"/g, '').trim());
+          const email = parts[0];
+          const product = parts[2] || 'unknown'; // 旧格式没有 product 列
+
+          if (email) {
+            let productSet = this.sentByProduct.get(product);
+            if (!productSet) {
+              productSet = new Set();
+              this.sentByProduct.set(product, productSet);
+            }
+            productSet.add(email);
+          }
         }
       } catch {
         // 忽略
@@ -203,21 +248,50 @@ export class ProgressManager {
         const lines = csv.split('\n').slice(1);
         for (const line of lines) {
           if (!line.trim()) continue;
-          const [email] = line.split(',');
-          if (email) this.sentEmails.add(email.replace(/"/g, '').trim());
+          const parts = line.split(',').map(s => s.replace(/"/g, '').trim());
+          const email = parts[0];
+          const product = parts[2] || 'unknown';
+
+          if (email) {
+            let productSet = this.sentByProduct.get(product);
+            if (!productSet) {
+              productSet = new Set();
+              this.sentByProduct.set(product, productSet);
+            }
+            productSet.add(email);
+          }
         }
       } catch {
         // 忽略
       }
     }
 
-    // 从 progress.json 恢复旧记录
+    // 从 progress.json 恢复（兼容新旧格式）
     if (existsSync(this.progressFile)) {
       try {
         const data = JSON.parse(readFileSync(this.progressFile, 'utf-8'));
-        if (data.sentEmails) {
+
+        if (data.sentByProduct) {
+          // 新格式：按产品分组
+          for (const [product, emails] of Object.entries(data.sentByProduct)) {
+            let productSet = this.sentByProduct.get(product);
+            if (!productSet) {
+              productSet = new Set();
+              this.sentByProduct.set(product, productSet);
+            }
+            for (const email of emails as string[]) {
+              productSet.add(email);
+            }
+          }
+        } else if (data.sentEmails) {
+          // 旧格式：全部归为 'unknown' 产品
+          let productSet = this.sentByProduct.get('unknown');
+          if (!productSet) {
+            productSet = new Set();
+            this.sentByProduct.set('unknown', productSet);
+          }
           for (const email of data.sentEmails) {
-            this.sentEmails.add(email);
+            productSet.add(email);
           }
         }
       } catch {
@@ -229,14 +303,14 @@ export class ProgressManager {
   /**
    * 追加到发送记录 CSV
    */
-  private appendToSentCsv(email: string, sender: string, status: string): void {
+  private appendToSentCsv(email: string, sender: string, product: string, status: string): void {
     // 确保 CSV 文件有标题
     if (!existsSync(this.sentCsvFile)) {
-      writeFileSync(this.sentCsvFile, 'email,sender,status,timestamp\n');
+      writeFileSync(this.sentCsvFile, 'email,sender,product,status,timestamp\n');
     }
 
     const timestamp = new Date().toISOString();
-    const line = `"${email}","${sender}","${status}","${timestamp}"\n`;
+    const line = `"${email}","${sender}","${product}","${status}","${timestamp}"\n`;
     appendFileSync(this.sentCsvFile, line);
   }
 }
