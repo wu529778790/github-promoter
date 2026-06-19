@@ -67,7 +67,10 @@ async function main() {
       break;
 
     default:
-      printHelp();
+      // 没有命令时，启动 Web 管理界面
+      console.log('\n🚀 启动 Web 管理界面...\n');
+      const { startServer } = await import('./server.js');
+      startServer();
   }
 }
 
