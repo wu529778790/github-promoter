@@ -362,8 +362,107 @@ function applyTheme(theme) {
 }
 
 // ============================================================
+// 初始化向导
+// ============================================================
+
+async function checkSetup() {
+  const result = await api('/api/setup');
+  if (result.ok && result.data.needsSetup) {
+    document.getElementById('setup-overlay').style.display = 'flex';
+    return true;
+  }
+  return false;
+}
+
+async function saveSetup() {
+  const githubToken = document.getElementById('setup-github-token').value.trim();
+  const smtpUser = document.getElementById('setup-smtp-user').value.trim();
+  const smtpPass = document.getElementById('setup-smtp-pass').value.trim();
+  const smtpHost = document.getElementById('setup-smtp-host').value.trim();
+  const smtpPort = document.getElementById('setup-smtp-port').value.trim();
+  const productName = document.getElementById('setup-product-name').value.trim();
+  const productDesc = document.getElementById('setup-product-desc').value.trim();
+  const githubUrl = document.getElementById('setup-github-url').value.trim();
+
+  if (!smtpUser || !smtpPass) {
+    showStatus('setup-status', '请填写邮箱和密码', 'error');
+    return;
+  }
+
+  showStatus('setup-status', '保存中...', 'info');
+
+  // 保存 .env
+  const envResult = await api('/api/setup/env', {
+    method: 'POST',
+    body: JSON.stringify({
+      github_token: githubToken,
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
+      smtp_user: smtpUser,
+      smtp_pass: smtpPass,
+    }),
+  });
+
+  if (!envResult.ok) {
+    showStatus('setup-status', `保存失败: ${envResult.error}`, 'error');
+    return;
+  }
+
+  // 保存 config.yaml
+  const config = {
+    senders: [{
+      name: smtpUser.split('@')[0],
+      email: smtpUser,
+      smtp_server: smtpHost,
+      smtp_port: parseInt(smtpPort) || 465,
+      password: smtpPass,
+      daily_limit: 200,
+      status: 'active',
+    }],
+    settings: {
+      email_interval_min: 180,
+      email_interval_max: 420,
+      timezone: 'Asia/Shanghai',
+    },
+    harvest: {
+      sources: ['stargazers', 'issues', 'pulls', 'forks'],
+      topics: ['ai-tool', 'claude', 'llm'],
+      target_repos: [],
+      per_repo_limit: 100,
+      rate_limit_threshold: 100,
+    },
+    email_content: {
+      product_name: productName || 'My Project',
+      product_description: productDesc || 'A great open source project',
+      github_repo_url: githubUrl || 'https://github.com',
+    },
+    debug: {
+      dry_run: false,
+      log_level: 'info',
+    },
+  };
+
+  const configResult = await api('/api/setup/config', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+
+  if (configResult.ok) {
+    showStatus('setup-status', '✅ 配置已保存，正在刷新...', 'success');
+    setTimeout(() => {
+      document.getElementById('setup-overlay').style.display = 'none';
+      loadDashboard();
+    }, 1500);
+  } else {
+    showStatus('setup-status', `保存失败: ${configResult.error}`, 'error');
+  }
+}
+
+// ============================================================
 // 初始化
 // ============================================================
 
 initTheme();
-loadDashboard();
+checkSetup().then(() => {
+  loadDashboard();
+});

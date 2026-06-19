@@ -20,6 +20,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const WEB_DIR = join(__dirname, '..', 'web');
 const CONFIG_PATH = join(__dirname, '..', 'config', 'config.yaml');
+const ENV_PATH = join(__dirname, '..', '.env');
 const EMAILS_FILE = join(__dirname, '..', 'data', 'emails.csv');
 
 const app = express();
@@ -29,6 +30,60 @@ const PORT = parseInt(process.env.WEB_PORT || '3456', 10);
 // 中间件
 app.use(express.json());
 app.use(express.static(WEB_DIR));
+
+// ============================================================
+// API: 初始化检查
+// ============================================================
+
+app.get('/api/setup', (req, res) => {
+  const hasConfig = existsSync(CONFIG_PATH);
+  const hasEnv = existsSync(ENV_PATH);
+  res.json({
+    ok: true,
+    data: {
+      needsSetup: !hasConfig && !hasEnv,
+      hasConfig,
+      hasEnv,
+    },
+  });
+});
+
+// ============================================================
+// API: 保存 .env
+// ============================================================
+
+app.post('/api/setup/env', (req, res) => {
+  try {
+    const { github_token, smtp_host, smtp_port, smtp_user, smtp_pass } = req.body;
+    const lines = [
+      `GITHUB_TOKEN=${github_token || ''}`,
+      `SMTP_HOST=${smtp_host || 'smtp.qq.com'}`,
+      `SMTP_PORT=${smtp_port || '465'}`,
+      `SMTP_USER=${smtp_user || ''}`,
+      `SMTP_PASS=${smtp_pass || ''}`,
+    ];
+    writeFileSync(ENV_PATH, lines.join('\n') + '\n');
+    res.json({ ok: true, message: '.env 已保存' });
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// ============================================================
+// API: 保存完整配置
+// ============================================================
+
+app.post('/api/setup/config', (req, res) => {
+  try {
+    const config = req.body;
+    const yaml = YAML.stringify(config);
+    writeFileSync(CONFIG_PATH, yaml);
+    resetConfig();
+    res.json({ ok: true, message: '配置已保存' });
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
 
 // ============================================================
 // API: 获取状态

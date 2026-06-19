@@ -178,6 +178,63 @@
     </main>
   </div>
 
+  <!-- 初始化向导（覆盖层） -->
+  <div id="setup-overlay" class="setup-overlay" style="display: none;">
+    <div class="setup-card">
+      <div class="setup-logo">🚀</div>
+      <h1>Promoter 初始化</h1>
+      <p class="setup-subtitle">配置你的推广工具，只需一步</p>
+
+      <div id="setup-step-1" class="setup-step">
+        <h2>📧 SMTP 邮箱配置</h2>
+        <div class="form-group">
+          <label>发件邮箱</label>
+          <input type="email" id="setup-smtp-user" placeholder="your_email@qq.com" class="input">
+        </div>
+        <div class="form-group">
+          <label>邮箱密码/授权码</label>
+          <input type="password" id="setup-smtp-pass" placeholder="QQ邮箱授权码" class="input">
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex: 2">
+            <label>SMTP 服务器</label>
+            <input type="text" id="setup-smtp-host" value="smtp.qq.com" class="input">
+          </div>
+          <div class="form-group" style="flex: 1">
+            <label>端口</label>
+            <input type="number" id="setup-smtp-port" value="465" class="input">
+          </div>
+        </div>
+
+        <h2 style="margin-top: 24px">🔗 GitHub Token</h2>
+        <div class="form-group">
+          <label>GitHub Personal Access Token</label>
+          <input type="password" id="setup-github-token" placeholder="ghp_xxxxx" class="input">
+          <span class="form-hint">用于采集邮箱，需要 repo 权限</span>
+        </div>
+
+        <h2 style="margin-top: 24px">📦 产品信息</h2>
+        <div class="form-group">
+          <label>产品名称</label>
+          <input type="text" id="setup-product-name" placeholder="My Awesome Project" class="input">
+        </div>
+        <div class="form-group">
+          <label>产品描述</label>
+          <input type="text" id="setup-product-desc" placeholder="一句话介绍你的项目" class="input">
+        </div>
+        <div class="form-group">
+          <label>GitHub 仓库地址</label>
+          <input type="text" id="setup-github-url" placeholder="https://github.com/your-username/your-project" class="input">
+        </div>
+
+        <div class="setup-actions">
+          <button class="btn btn-primary btn-large" onclick="saveSetup()">🚀 保存并启动</button>
+        </div>
+        <div id="setup-status" class="status-msg"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script src="app.js"></script>
