@@ -11,7 +11,8 @@
     "send": "tsx src/index.ts send",
     "build": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "clean:logs": "rm -rf logs/"
   },
   "dependencies": {
     "@octokit/rest": "^21.0.0",

@@ -15,6 +15,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -151,9 +152,8 @@ function loadProductConfig(): EmailContentConfig {
   const configPath = join(__dirname, '..', 'config', 'config.yaml');
   if (existsSync(configPath)) {
     try {
-      const yaml = require('yaml');
       const raw = readFileSync(configPath, 'utf-8');
-      const config = yaml.parse(raw);
+      const config = YAML.parse(raw);
       if (config?.email_content) {
         return config.email_content;
       }

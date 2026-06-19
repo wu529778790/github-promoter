@@ -14,6 +14,7 @@ senders:
     smtp_port: 465
     password: "YOUR_APP_PASSWORD"
     daily_limit: 200
+    status: "active"       # active / inactive（临时禁用某个发件人）
 
   # 可添加更多发件人（并行发送，提高速度）
   # - name: "Another Sender"
@@ -22,6 +23,7 @@ senders:
   #   smtp_port: 587
   #   password: "YOUR_GMAIL_APP_PASSWORD"
   #   daily_limit: 500
+  #   status: "active"
 
 # =============================================
 # 发送策略

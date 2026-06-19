@@ -138,6 +138,20 @@ export class ProgressManager {
   }
 
   /**
+   * 重置每日统计（日期变更时调用）
+   */
+  resetDailyStats(): void {
+    for (const [name, stats] of this.senderStats) {
+      stats.sent = 0;
+      stats.failed = 0;
+      stats.paused = false;
+      stats.pausedUntil = null;
+    }
+    this.senderStats.clear();
+    this.save();
+  }
+
+  /**
    * 检查发件人是否暂停
    */
   isSenderPaused(senderName: string): boolean {

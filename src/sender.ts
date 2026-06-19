@@ -1,24 +1,22 @@
 /**
  * 多发件人并行发送引擎
  *
- * 特性：
- * - 多 SMTP 账号并行发送
- * - 每个发件人独立配额追踪
- * - 限流隔离（一个账号限流不影响其他）
- * - 每日配额自动重置
- * - 连接活性检测（NOOP）
- * - 连接重试（3 次，指数退避）
- * - 优雅退出（SIGINT/SIGTERM → 保存进度 → 退出）
+ * 参考 Python 项目的 ParallelSender 架构
+ * - Queue + Worker 模型（无竞态条件）
+ * - 每个发件人独立工作线程
+ * - 限流隔离 + 任务重试
+ * - 日期感知配额重置
+ * - 优雅退出
  */
 
-import nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig, SenderConfig } from './config.js';
+import { SmtpSender } from './smtp-sender.js';
 import { ProgressManager } from './progress.js';
 import { generateEmail } from './spintax.js';
+import { getLogger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,115 +24,60 @@ const DATA_DIR = join(__dirname, '..', 'data');
 const EMAILS_FILE = join(DATA_DIR, 'emails.csv');
 
 // ============================================================
-// SMTP 连接管理
+// 任务队列（线程安全）
 // ============================================================
 
-class SmtpConnection {
-  private transporter: Transporter | null = null;
-  private config: SenderConfig;
-  private failedQueue: string[] = [];
+interface EmailTask {
+  email: string;
+  name: string;
+  retryCount: number;
+  maxRetries: number;
+}
 
-  constructor(config: SenderConfig) {
-    this.config = config;
+class TaskQueue {
+  private queue: EmailTask[] = [];
+  private consumers: (() => void)[] = [];
+
+  push(task: EmailTask): void {
+    this.queue.push(task);
+    // 唤醒一个等待的消费者
+    const consumer = this.consumers.shift();
+    if (consumer) consumer();
   }
 
-  /**
-   * 建立连接
-   */
-  async connect(): Promise<void> {
-    this.transporter = nodemailer.createTransport({
-      host: this.config.smtp_server,
-      port: this.config.smtp_port,
-      secure: this.config.smtp_port === 465,
-      auth: {
-        user: this.config.email,
-        pass: this.config.password,
-      },
-      // 连接超时 30 秒
-      connectionTimeout: 30000,
-      // 读取超时 30 秒
-      greetingTimeout: 30000,
+  pop(timeoutMs = 5000): Promise<EmailTask | null> {
+    // 如果队列非空，立即返回
+    if (this.queue.length > 0) {
+      return Promise.resolve(this.queue.shift() || null);
+    }
+
+    // 否则等待
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        // 移除消费者
+        const idx = this.consumers.indexOf(consumerFn);
+        if (idx !== -1) this.consumers.splice(idx, 1);
+        resolve(null);
+      }, timeoutMs);
+
+      const consumerFn = () => {
+        clearTimeout(timer);
+        resolve(this.queue.shift() || null);
+      };
+      this.consumers.push(consumerFn);
     });
   }
 
-  /**
-   * 断开连接
-   */
-  async disconnect(): Promise<void> {
-    if (this.transporter) {
-      try {
-        await this.transporter.close();
-      } catch {
-        // 忽略
-      }
-      this.transporter = null;
-    }
+  get size(): number {
+    return this.queue.length;
   }
 
-  /**
-   * 检查连接活性（NOOP）
-   */
-  async isAlive(): Promise<boolean> {
-    if (!this.transporter) return false;
-    try {
-      await this.transporter.verify();
-      return true;
-    } catch {
-      return false;
-    }
+  requeue(task: EmailTask): void {
+    this.queue.unshift(task); // 放回队首
   }
 
-  /**
-   * 确保连接可用（断线重连）
-   */
-  async ensureConnection(): Promise<void> {
-    if (!this.transporter || !(await this.isAlive())) {
-      await this.disconnect();
-      await this.connect();
-    }
-  }
-
-  /**
-   * 发送邮件（带重试）
-   */
-  async send(
-    from: string,
-    to: string,
-    subject: string,
-    text: string
-  ): Promise<{ success: boolean; error?: string }> {
-    const MAX_RETRIES = 3;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        await this.ensureConnection();
-        await this.transporter!.sendMail({ from, to, subject, text });
-        return { success: true };
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-
-        // 限流错误码：421, 450, 550, 571, 69585
-        const isRateLimit = /421|450|550|571|69585/.test(errMsg) ||
-          errMsg.includes('quota') ||
-          errMsg.includes('too many') ||
-          errMsg.includes('rate limit');
-
-        if (isRateLimit) {
-          return { success: false, error: `RATE_LIMIT: ${errMsg}` };
-        }
-
-        // 非限流错误：重试
-        if (attempt < MAX_RETRIES) {
-          const backoff = attempt * 5000; // 5s, 10s, 15s
-          console.log(`   ⚠️ 发送失败 (${attempt}/${MAX_RETRIES})，${backoff / 1000} 秒后重试...`);
-          await new Promise(resolve => setTimeout(resolve, backoff));
-        } else {
-          return { success: false, error: errMsg };
-        }
-      }
-    }
-
-    return { success: false, error: 'Max retries exceeded' };
+  clear(): void {
+    this.queue = [];
   }
 }
 
@@ -145,12 +88,19 @@ class SmtpConnection {
 export class ParallelSender {
   private config: AppConfig;
   private progress: ProgressManager;
-  private connections: Map<string, SmtpConnection> = new Map();
+  private senders: SmtpSender[] = [];
+  private queue = new TaskQueue();
   private aborted = false;
+  private logger = getLogger();
+  private lastQuotaResetDate: string = '';
+  private workerPromises: Promise<void>[] = [];
 
   constructor(config: AppConfig) {
     this.config = config;
     this.progress = new ProgressManager();
+
+    // 记录今天的日期（用于日期感知配额重置）
+    this.lastQuotaResetDate = this.getDateString();
 
     // 注册信号处理
     this.registerSignalHandlers();
@@ -165,77 +115,102 @@ export class ParallelSender {
     // 读取邮箱列表
     const emails = this.loadEmails();
     if (emails.length === 0) {
-      console.log('📭 没有待发送的邮箱');
+      this.logger.info('没有待发送的邮箱');
       return;
     }
 
-    console.log(`📧 待发送: ${emails.length} 个邮箱`);
-    console.log(`📦 推广产品: ${product}`);
+    this.logger.info(`待发送: ${emails.length} 个邮箱`);
+    this.logger.info(`推广产品: ${product}`);
 
     // 过滤已发送的（按产品去重）
     const pending = emails.filter(e => !this.progress.isSent(e.email, product));
-    console.log(`📬 剩余: ${pending.length} 个邮箱 (已为 "${product}" 发送过 ${emails.length - pending.length} 个)`);
+    this.logger.info(`剩余: ${pending.length} 个邮箱 (已为 "${product}" 发送过 ${emails.length - pending.length} 个)`);
 
     if (pending.length === 0) {
-      console.log('✅ 所有邮件已发送完毕');
+      this.logger.info('所有邮件已发送完毕');
       return;
     }
 
     // 应用限制
     const toSend = limit ? pending.slice(0, limit) : pending;
     this.progress.setTotal(toSend.length);
-    this.progress.save();
 
-    // 初始化 SMTP 连接
-    const activeSenders = this.config.senders.filter(s => s.password); // 过滤有密码的
+    // 初始化发送器（过滤有密码的，且 status 不是 inactive 的）
+    const activeSenders = this.config.senders.filter(s => s.password && s.status !== 'inactive');
     if (activeSenders.length === 0) {
-      console.error('❌ 没有有效的发件人配置');
+      this.logger.error('没有有效的发件人配置');
       return;
     }
 
-    console.log(`\n🚀 启动 ${activeSenders.length} 个发件人并行发送...\n`);
+    this.logger.info(`启动 ${activeSenders.length} 个发件人并行发送...`);
 
-    for (const sender of activeSenders) {
-      const conn = new SmtpConnection(sender);
-      this.connections.set(sender.name, conn);
-      await conn.connect();
+    // 连接所有发送器
+    for (const senderConfig of activeSenders) {
+      const sender = new SmtpSender(senderConfig);
+      const result = await sender.connect();
+      if (result.success) {
+        this.senders.push(sender);
+      } else {
+        this.logger.error(`发送器 ${sender.name} 连接失败: ${result.message}`);
+      }
     }
 
-    // 并行发送
-    await this.sendParallel(toSend, activeSenders);
-
-    // 清理
-    for (const conn of this.connections.values()) {
-      await conn.disconnect();
+    if (this.senders.length === 0) {
+      this.logger.error('所有发送器连接失败');
+      return;
     }
+
+    this.logger.info(`${this.senders.length} 个发送器已连接`);
+
+    // 将任务加入队列
+    for (const emailData of toSend) {
+      this.queue.push({
+        email: emailData.email,
+        name: emailData.name,
+        retryCount: 0,
+        maxRetries: 3,
+      });
+    }
+
+    // 启动工作线程
+    this.workerPromises = this.senders.map(sender => this.workerLoop(sender));
+
+    // 等待所有工作线程完成
+    await Promise.all(this.workerPromises);
+
+    // 保存最终进度
+    this.progress.save();
 
     // 显示最终统计
     const snapshot = this.progress.getSnapshot();
-    console.log(`\n📊 最终统计:`);
-    console.log(`   ✅ 已发送: ${snapshot.sent}`);
-    console.log(`   ❌ 失败: ${snapshot.failed}`);
-    console.log(`   📧 总计: ${snapshot.total}`);
+    this.logger.info(`最终统计: 已发送 ${snapshot.sent}, 失败 ${snapshot.failed}, 总计 ${snapshot.total}`);
   }
 
   /**
    * 停止发送（优雅退出）
    */
   async stop(): Promise<void> {
-    console.log('\n⏹️ 正在停止发送...');
+    this.logger.info('正在停止发送...');
     this.aborted = true;
 
-    // 等待当前发送完成
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // 清空队列
+    this.queue.clear();
+
+    // 等待工作线程完成当前任务（最多 30 秒）
+    const timeout = new Promise(resolve => setTimeout(resolve, 30000));
+    await Promise.race([
+      Promise.all(this.workerPromises),
+      timeout,
+    ]);
+
+    // 断开所有连接
+    for (const sender of this.senders) {
+      await sender.disconnect();
+    }
 
     // 保存进度
     this.progress.save();
-
-    // 断开连接
-    for (const conn of this.connections.values()) {
-      await conn.disconnect();
-    }
-
-    console.log('💾 进度已保存');
+    this.logger.info('进度已保存，发送已停止');
   }
 
   /**
@@ -253,7 +228,6 @@ export class ParallelSender {
     console.log(`   ❌ 失败: ${snapshot.failed}`);
     console.log(`   📬 剩余: ${snapshot.remaining}`);
 
-    // 各产品发送统计
     if (Object.keys(productStats).length > 0) {
       console.log('\n   各产品发送记录:');
       for (const [product, count] of Object.entries(productStats)) {
@@ -271,91 +245,126 @@ export class ParallelSender {
   }
 
   // ============================================================
-  // 内部方法
+  // 工作线程
   // ============================================================
 
-  /**
-   * 并行发送核心逻辑
-   */
-  private async sendParallel(
-    emails: { email: string; name: string }[],
-    senders: SenderConfig[]
-  ): Promise<void> {
-    const product = this.config.email_content.product_name;
-    let currentIndex = 0;
+  private async workerLoop(sender: SmtpSender): Promise<void> {
+    this.logger.info(`工作线程启动: ${sender.name}`);
 
-    // 为每个发件人创建工作循环
-    const workers = senders.map(async (sender) => {
-      const conn = this.connections.get(sender.name)!;
+    while (!this.aborted) {
+      try {
+        // 日期感知配额重置
+        this.checkDateChange();
 
-      while (currentIndex < emails.length && !this.aborted) {
-        // 检查发件人是否暂停
+        // 检查发送器是否暂停
         if (this.progress.isSenderPaused(sender.name)) {
-          console.log(`⏸️ ${sender.name} 已暂停，等待...`);
-          await new Promise(resolve => setTimeout(resolve, 60000)); // 1 分钟后重试
+          this.logger.info(`${sender.name} 限流暂停中，等待恢复...`, sender.name);
+          await this.sleep(60000);
           continue;
         }
 
-        // 获取下一个邮箱（简单锁）
-        if (currentIndex >= emails.length) break;
-        const emailData = emails[currentIndex++];
-
-        // 随机延迟
-        const minDelay = this.config.settings.email_interval_min * 1000;
-        const maxDelay = this.config.settings.email_interval_max * 1000;
-        const delay = minDelay + Math.random() * (maxDelay - minDelay);
-
-        // 分段延迟（每 30 秒检查一次是否需要退出）
-        const delayEnd = Date.now() + delay;
-        while (Date.now() < delayEnd && !this.aborted) {
-          await new Promise(resolve => setTimeout(resolve, Math.min(30000, delayEnd - Date.now())));
+        // 检查配额
+        if (!sender.canSend()) {
+          this.logger.info(`${sender.name} 配额已用完`, sender.name);
+          break;
         }
+
+        // 从队列获取任务
+        const task = await this.queue.pop(5000);
+        if (!task) continue; // 队列空，继续等待
         if (this.aborted) break;
 
-        // DRY RUN
-        if (this.config.debug.dry_run) {
-          console.log(`🧪 [DRY RUN] 跳过: ${emailData.email} (${sender.name})`);
-          this.progress.markSent(emailData.email, sender.name, product);
+        // 发送前检查是否已发送（防并发重复）
+        const product = this.config.email_content.product_name;
+        if (this.progress.isSent(task.email, product)) {
           continue;
         }
 
         // 生成随机内容
-        const email = generateEmail(emailData.name);
+        const email = generateEmail(task.name);
 
         // 发送
-        const from = `"${sender.name}" <${sender.email}>`;
-        const result = await conn.send(from, emailData.email, email.subject, email.text);
+        const result = await sender.send(task.email, email.subject, email.text);
 
         if (result.success) {
-          console.log(`✅ ${sender.name} → ${emailData.email}`);
-          this.progress.markSent(emailData.email, sender.name, product);
-        } else if (result.error?.startsWith('RATE_LIMIT:')) {
-          console.log(`⏸️ ${sender.name} 触发限流，暂停 12 小时`);
+          this.progress.markSent(task.email, sender.name, product);
+        } else if (result.isRateLimit) {
+          this.logger.warn(`限流: ${task.email}`, sender.name);
           this.progress.setSenderPaused(sender.name, true, Date.now() + 12 * 60 * 60 * 1000);
-          this.progress.markFailed(emailData.email, sender.name, product, 'rate_limited');
-          // 把邮箱放回队列
-          currentIndex--;
+
+          // 重试
+          task.retryCount++;
+          if (task.retryCount < task.maxRetries) {
+            this.queue.requeue(task);
+          } else {
+            this.progress.markFailed(task.email, sender.name, product, 'rate_limited');
+          }
+
+          // 断开连接，等恢复后重连
+          await sender.disconnect();
         } else {
-          console.log(`❌ ${sender.name} → ${emailData.email}: ${result.error}`);
-          this.progress.markFailed(emailData.email, sender.name, product, result.error || 'unknown');
+          this.logger.error(`发送失败: ${task.email} - ${result.error}`, sender.name);
+          this.progress.markFailed(task.email, sender.name, product, result.error || 'unknown');
+
+          // 普通错误暂停 30 秒
+          await this.sleep(30000);
+        }
+
+        // 随机延迟（从配置读取）
+        if (!this.aborted) {
+          const minDelay = this.config.settings.email_interval_min * 1000;
+          const maxDelay = this.config.settings.email_interval_max * 1000;
+          const delay = minDelay + Math.random() * (maxDelay - minDelay);
+
+          // 分段延迟（可中断）
+          const delayEnd = Date.now() + delay;
+          while (Date.now() < delayEnd && !this.aborted) {
+            await this.sleep(Math.min(30000, delayEnd - Date.now()));
+          }
         }
 
         // 定期保存进度
         const snapshot = this.progress.getSnapshot();
         if (snapshot.sent % 10 === 0) {
           this.progress.save();
-          console.log(`📊 进度: ${snapshot.sent}/${snapshot.total}`);
+          this.logger.info(`进度: ${snapshot.sent}/${snapshot.total}`);
         }
-      }
-    });
 
-    await Promise.all(workers);
-    this.progress.save();
+      } catch (error) {
+        this.logger.error(`工作线程异常: ${error}`, sender.name);
+        await this.sleep(10000);
+      }
+    }
+
+    // 清理
+    await sender.disconnect();
+    this.logger.info(`工作线程退出: ${sender.name}`);
   }
 
-  /**
-   * 读取邮箱列表
-   */
+  // ============================================================
+  // 日期感知配额重置
+  // ============================================================
+
+  private checkDateChange(): void {
+    const today = this.getDateString();
+    if (today !== this.lastQuotaResetDate) {
+      this.logger.info(`日期变更: ${this.lastQuotaResetDate} → ${today}，重置所有配额`);
+      for (const sender of this.senders) {
+        sender.resetDailyQuota();
+      }
+      this.progress.resetDailyStats();
+      this.lastQuotaResetDate = today;
+    }
+  }
+
+  private getDateString(): string {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  // ============================================================
+  // 工具方法
+  // ============================================================
+
   private loadEmails(): { email: string; name: string }[] {
     if (!existsSync(EMAILS_FILE)) return [];
 
@@ -374,9 +383,10 @@ export class ParallelSender {
     }
   }
 
-  /**
-   * 注册信号处理（优雅退出）
-   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   private registerSignalHandlers(): void {
     const cleanup = async () => {
       if (!this.aborted) {
@@ -387,5 +397,8 @@ export class ParallelSender {
 
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
+    process.on('exit', () => {
+      this.progress.save();
+    });
   }
 }

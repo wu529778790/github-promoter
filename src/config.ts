@@ -24,6 +24,7 @@ export interface SenderConfig {
   smtp_port: number;
   password: string;
   daily_limit: number;
+  status?: string; // active / inactive
 }
 
 export interface SettingsConfig {
