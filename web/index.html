@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Promoter - 管理面板</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-icon">🚀</span>
+        <span class="logo-text">GitHub Promoter</span>
+      </div>
+      <nav>
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span> 仪表盘
+        </a>
+        <a href="#" class="nav-item" data-page="collect">
+          <span class="nav-icon">📧</span> 采集邮箱
+        </a>
+        <a href="#" class="nav-item" data-page="preview">
+          <span class="nav-icon">👀</span> 预览邮件
+        </a>
+        <a href="#" class="nav-item" data-page="send">
+          <span class="nav-icon">📤</span> 发送邮件
+        </a>
+        <a href="#" class="nav-item" data-page="config">
+          <span class="nav-icon">⚙️</span> 配置管理
+        </a>
+        <a href="#" class="nav-item" data-page="logs">
+          <span class="nav-icon">📋</span> 运行日志
+        </a>
+      </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="main">
+      <!-- 仪表盘 -->
+      <div id="page-dashboard" class="page active">
+        <h1>仪表盘</h1>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📧</div>
+            <div class="stat-value" id="email-count">-</div>
+            <div class="stat-label">已采集邮箱</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👤</div>
+            <div class="stat-value" id="sender-count">-</div>
+            <div class="stat-label">发件人</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🔢</div>
+            <div class="stat-value" id="combo-count">-</div>
+            <div class="stat-label">邮件组合</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📦</div>
+            <div class="stat-value" id="product-name">-</div>
+            <div class="stat-label">当前产品</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>采集来源统计</h2>
+          <div id="source-stats" class="source-stats">加载中...</div>
+        </div>
+
+        <div class="card">
+          <h2>发件人列表</h2>
+          <div id="sender-list" class="sender-list">加载中...</div>
+        </div>
+
+        <div class="card">
+          <h2>快速操作</h2>
+          <div class="quick-actions">
+            <button class="btn btn-primary" onclick="quickCollect()">📧 开始采集</button>
+            <button class="btn btn-success" onclick="quickSend()">📤 开始发送</button>
+            <button class="btn btn-warning" onclick="testSmtp()">🔌 测试连接</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 采集邮箱 -->
+      <div id="page-collect" class="page">
+        <h1>采集邮箱</h1>
+        <div class="card">
+          <h2>手动输入仓库</h2>
+          <div class="form-group">
+            <label>GitHub 仓库链接</label>
+            <input type="text" id="collect-repo" placeholder="https://github.com/owner/repo 或 owner/repo" class="input">
+          </div>
+          <button class="btn btn-primary" onclick="startCollect()">开始采集</button>
+          <div id="collect-status" class="status-msg"></div>
+        </div>
+
+        <div class="card">
+          <h2>使用配置的仓库</h2>
+          <p>按照 config.yaml 中配置的仓库列表和 Topic 自动采集</p>
+          <button class="btn btn-primary" onclick="startCollectConfig()">使用配置采集</button>
+        </div>
+      </div>
+
+      <!-- 预览邮件 -->
+      <div id="page-preview" class="page">
+        <h1>预览邮件</h1>
+        <div class="card">
+          <div class="form-group">
+            <label>预览数量</label>
+            <input type="number" id="preview-count" value="5" min="1" max="20" class="input input-small">
+            <button class="btn btn-primary" onclick="loadPreview()">生成预览</button>
+          </div>
+          <div id="preview-list" class="preview-list"></div>
+        </div>
+      </div>
+
+      <!-- 发送邮件 -->
+      <div id="page-send" class="page">
+        <h1>发送邮件</h1>
+        <div class="card">
+          <h2>发送设置</h2>
+          <div class="form-row">
+            <div class="form-group">
+              <label>限制数量（0=不限制）</label>
+              <input type="number" id="send-limit" value="0" class="input input-small">
+            </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="send-dryrun"> 模拟发送（不实际投递）
+              </label>
+            </div>
+          </div>
+          <div class="send-actions">
+            <button class="btn btn-success btn-large" onclick="startSend()">📤 开始发送</button>
+          </div>
+          <div id="send-status" class="status-msg"></div>
+        </div>
+
+        <div class="card">
+          <h2>发送进度</h2>
+          <div id="send-progress" class="send-progress">加载中...</div>
+        </div>
+      </div>
+
+      <!-- 配置管理 -->
+      <div id="page-config" class="page">
+        <h1>配置管理</h1>
+        <div class="card">
+          <h2>config.yaml</h2>
+          <textarea id="config-editor" class="config-editor" rows="30"></textarea>
+          <div class="config-actions">
+            <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
+            <button class="btn btn-secondary" onclick="loadConfigPage()">🔄 重新加载</button>
+          </div>
+          <div id="config-status" class="status-msg"></div>
+        </div>
+      </div>
+
+      <!-- 运行日志 -->
+      <div id="page-logs" class="page">
+        <h1>运行日志</h1>
+        <div class="card">
+          <div class="log-actions">
+            <button class="btn btn-secondary" onclick="loadLogs()">🔄 刷新</button>
+            <label class="auto-refresh">
+              <input type="checkbox" id="log-autorefresh" onchange="toggleLogAutoRefresh()"> 自动刷新
+            </label>
+          </div>
+          <div id="log-content" class="log-content">加载中...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

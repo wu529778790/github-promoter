@@ -23,6 +23,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/web ./web
 
 # 创建数据和日志目录
 RUN mkdir -p /app/data /app/logs && \

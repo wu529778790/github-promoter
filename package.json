@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "ui": "tsx src/tui.ts",
+    "web": "tsx src/server.ts",
     "collect": "tsx src/index.ts collect",
     "preview": "tsx src/index.ts preview",
     "send": "tsx src/index.ts send",
@@ -16,11 +17,13 @@
   },
   "dependencies": {
     "@octokit/rest": "^21.0.0",
+    "express": "^5.2.1",
     "inquirer": "^14.0.2",
     "nodemailer": "^6.9.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
     "@types/nodemailer": "^6.4.0",
     "tsx": "^4.0.0",
