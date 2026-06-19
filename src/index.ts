@@ -7,8 +7,10 @@
  *   npm run collect -- --status        查看采集进度
  *   npm run collect -- --dry-run       模拟采集
  *
+ *   npm run preview                    预览邮件内容
+ *   npm run preview -- --count 20      预览 20 封
+ *
  *   npm run send                       发送推广邮件
- *   npm run send -- --parallel         并行模式
  *   npm run send -- --count 50         限制数量
  *   npm run send -- --dry-run          模拟发送
  *   npm run send -- --status           查看发送状态
@@ -18,6 +20,7 @@
 import { loadConfig } from './config.js';
 import { collectEmails } from './collect.js';
 import { ParallelSender } from './sender.js';
+import { generateEmail, getCombinationCount } from './spintax.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -29,6 +32,10 @@ async function main() {
   switch (command) {
     case 'collect':
       await collectEmails(config, flags);
+      break;
+
+    case 'preview':
+      showPreview(config, flags);
       break;
 
     case 'send':
@@ -64,6 +71,53 @@ async function main() {
   }
 }
 
+// ============================================================
+// 邮件预览
+// ============================================================
+
+function showPreview(config: ReturnType<typeof loadConfig>, flags: string[]): void {
+  // 解析 --count 参数
+  let count = 5;
+  const countIdx = flags.indexOf('--count');
+  if (countIdx !== -1 && flags[countIdx + 1]) {
+    count = parseInt(flags[countIdx + 1], 10);
+  }
+
+  const product = config.email_content;
+  const comboCount = getCombinationCount();
+
+  console.log('📧 邮件预览\n');
+  console.log(`📦 产品: ${product.product_name}`);
+  console.log(`📝 描述: ${product.product_description}`);
+  console.log(`🔢 组合总数: ${comboCount.toLocaleString()} 种`);
+  console.log(`👀 预览数量: ${count} 封\n`);
+
+  console.log('─'.repeat(60));
+
+  const sampleNames = ['Alice', 'Bob', '张三', '李四', 'Developer', ''];
+  for (let i = 0; i < count; i++) {
+    const name = sampleNames[i % sampleNames.length];
+    const email = generateEmail(name, product);
+
+    console.log(`\n📧 第 ${i + 1} 封 (收件人: ${name || '无名'})`);
+    console.log(`   主题: ${email.subject}`);
+    console.log('   ' + '─'.repeat(50));
+    // 缩进正文
+    const lines = email.text.split('\n');
+    for (const line of lines) {
+      console.log(`   ${line}`);
+    }
+    console.log('─'.repeat(60));
+  }
+
+  console.log(`\n💡 确认内容无误后，运行 npm run send 开始发送`);
+  console.log(`💡 如需修改邮件内容，编辑 config/config.yaml 中的 email_content`);
+}
+
+// ============================================================
+// SMTP 连接测试
+// ============================================================
+
 async function testConnections(config: ReturnType<typeof loadConfig>): Promise<void> {
   console.log('🔌 测试 SMTP 连接...\n');
 
@@ -90,9 +144,13 @@ async function testConnections(config: ReturnType<typeof loadConfig>): Promise<v
   }
 }
 
+// ============================================================
+// 帮助信息
+// ============================================================
+
 function printHelp(): void {
   console.log(`
-GitHub Promoter - open-im 推广工具
+GitHub Promoter - 开源项目推广工具
 
 用法:
   npm run collect                    采集 GitHub 用户邮箱
@@ -100,8 +158,10 @@ GitHub Promoter - open-im 推广工具
   npm run collect -- --status        查看采集进度
   npm run collect -- --dry-run       模拟采集
 
+  npm run preview                    预览邮件内容
+  npm run preview -- --count 10      预览 10 封
+
   npm run send                       发送推广邮件
-  npm run send -- --parallel         并行模式（多发件人）
   npm run send -- --count 50         限制发送数量
   npm run send -- --dry-run          模拟发送
   npm run send -- --status           查看发送状态

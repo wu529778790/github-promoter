@@ -6,15 +6,17 @@ GitHub 开源项目推广工具 — 从 GitHub 采集目标用户邮箱，自动
 
 ## 功能
 
-- **邮箱采集**：从 GitHub stargazers 的公开 commit 中提取邮箱
+- **多维度邮箱采集**：Stargazers / Issue 参与者 / PR 贡献者 / Fork 者
 - **多发件人并行**：支持多个 SMTP 账号同时发送，提高效率
-- **Spintax 随机内容**：10 万+ 种邮件组合，避免被识别为垃圾邮件
+- **Spintax 随机内容**：51 万+ 种邮件组合，避免被识别为垃圾邮件
 - **反垃圾**：随机延迟（3-7 分钟），模拟人类行为
+- **邮件预览**：发送前先预览邮件内容，确认无误再发
+- **按产品去重**：同一邮箱推广不同产品可重复发送，同一产品不重复
+- **退订机制**：每封邮件自动包含退订说明，符合 CAN-SPAM/GDPR
 - **进度持久化**：支持中断恢复，避免重复发送
 - **速率限制感知**：自动检测 GitHub API 配额，动态调整请求速度
 - **断点续采**：采集过程中断后可从上次位置继续
 - **Topic 搜索**：按 GitHub Topic 自动发现目标仓库
-- **通用模板**：邮件内容自动使用你配置的产品信息
 
 ## 快速开始
 
@@ -102,6 +104,10 @@ npm run collect                    # 默认采集
 npm run collect -- --resume        # 断点续采
 npm run collect -- --status        # 查看采集进度
 npm run collect -- --dry-run       # 模拟采集
+
+# 预览
+npm run preview                    # 预览 5 封随机邮件
+npm run preview -- --count 10      # 预览 10 封
 
 # 发送
 npm run send                       # 默认发送

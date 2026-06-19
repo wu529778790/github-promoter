@@ -82,6 +82,12 @@ describe('generateBody', () => {
     expect(body).not.toMatch(/https?:\/\//);
   });
 
+  it('should contain unsubscribe footer', () => {
+    const body = generateBody('Alice');
+    expect(body).toContain('unsubscribe');
+    expect(body).toContain('退订');
+  });
+
   it('should generate different bodies (statistical)', () => {
     const bodies = new Set();
     for (let i = 0; i < 50; i++) {

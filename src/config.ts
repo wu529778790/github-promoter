@@ -37,6 +37,7 @@ export interface HarvestConfig {
   target_repos: string[];
   per_repo_limit: number;
   rate_limit_threshold: number;
+  sources: string[];
 }
 
 export interface EmailContentConfig {
@@ -78,6 +79,7 @@ const DEFAULT_CONFIG: AppConfig = {
     ],
     per_repo_limit: 100,
     rate_limit_threshold: 100,
+    sources: ['stargazers', 'issues', 'pulls', 'forks'],
   },
   email_content: {
     product_name: 'Your Project',

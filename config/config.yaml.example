@@ -38,6 +38,17 @@ settings:
 # 邮箱采集配置
 # =============================================
 harvest:
+  # 采集来源（可多选）
+  # - stargazers: 关注者（最广）
+  # - issues: Issue 参与者（有明确需求）
+  # - pulls: PR 贡献者（活跃开发者，高质量）
+  # - forks: Fork 者（实际在用）
+  sources:
+    - stargazers
+    - issues
+    - pulls
+    - forks
+
   # 按 GitHub Topic 搜索目标仓库
   # 根据你要推广的项目类型填写相关 topic
   topics:
@@ -48,14 +59,14 @@ harvest:
     - "open-source"
 
   # 补充的固定仓库列表（与 topic 搜索结果合并）
-  # 填写与你项目相关的仓库，从这些仓库的 stargazer 中采集邮箱
+  # 填写与你项目相关的仓库
   target_repos:
     - "anthropics/claude-code"
     - "lobehub/lobe-chat"
     - "labring/FastGPT"
     # 添加更多相关仓库...
 
-  # 每个仓库最多采集的 stargazer 数量
+  # 每个仓库每个来源最多采集的数量
   per_repo_limit: 100
 
   # GitHub API 速率限制阈值（低于此值时放慢请求）

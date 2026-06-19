@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "collect": "tsx src/index.ts collect",
+    "preview": "tsx src/index.ts preview",
     "send": "tsx src/index.ts send",
     "build": "tsc",
     "test": "vitest run",

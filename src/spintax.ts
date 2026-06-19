@@ -187,6 +187,11 @@ export function generateSubject(): string {
  * @param recipientName - 收件人名称
  * @param productConfig - 产品配置（可选，默认从 config.yaml 读取）
  */
+/**
+ * 退订说明（每封邮件底部自动添加）
+ */
+const UNSUBSCRIBE_FOOTER = '\n\n---\n如不想收到此类邮件，回复 "unsubscribe" 即可退订。';
+
 export function generateBody(
   recipientName?: string,
   productConfig?: EmailContentConfig
@@ -202,7 +207,7 @@ export function generateBody(
   const closing = pickRandom(SPINTAX.closings);
   const signature = pickRandom(SPINTAX.signatures);
 
-  return `${greeting},\n\n${opening}\n\n${valueProp}\n\n${closing}\n\n${signature}`;
+  return `${greeting},\n\n${opening}\n\n${valueProp}\n\n${closing}\n\n${signature}${UNSUBSCRIBE_FOOTER}`;
 }
 
 /**
