@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+logs
+.git
+.env
+.env.local
+*.log
+.DS_Store
+tests
+coverage
+.vitest

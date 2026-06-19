@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  promoter:
+    build: .
+    image: ghcr.io/wu529778790/github-promoter:latest
+    container_name: github-promoter
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # 挂载配置文件
+      - ./config:/app/config
+      # 持久化数据（邮箱、进度、日志）
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # 默认运行采集 + 发送（可通过环境变量控制）
+    command: ["node", "dist/index.js"]

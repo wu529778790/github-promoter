@@ -121,6 +121,70 @@ npm test                           # 运行所有测试
 npm run test:watch                 # 监听模式
 ```
 
+## Docker 部署
+
+### 快速部署
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/wu529778790/github-promoter.git
+cd github-promoter
+
+# 2. 创建 .env 文件
+cp .env.example .env
+# 编辑 .env 填写你的配置
+
+# 3. 创建配置文件
+cp config/config.yaml.example config/config.yaml
+# 编辑 config.yaml
+
+# 4. 启动
+docker-compose up -d
+
+# 5. 查看日志
+docker-compose logs -f
+```
+
+### 手动 Docker 运行
+
+```bash
+# 构建镜像
+docker build -t github-promoter .
+
+# 运行（带环境变量）
+docker run -d \
+  --name github-promoter \
+  --restart unless-stopped \
+  --env-file .env \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  github-promoter
+```
+
+### GitHub Actions 自动部署
+
+推送代码到 main 分支会自动：
+1. 运行类型检查和测试
+2. 构建 Docker 镜像并推送到 GHCR
+3. 通过 SSH 部署到服务器
+
+需要在 GitHub 仓库 Settings → Secrets 中配置：
+- `DEPLOY_HOST` — 服务器 IP
+- `DEPLOY_USER` — SSH 用户名
+- `DEPLOY_PASSWORD` — SSH 密码
+
+### 服务器目录结构
+
+```
+/opt/github-promoter/
+├── .env              # 环境变量
+├── config/
+│   └── config.yaml   # 配置文件
+├── data/             # 邮箱数据（持久化）
+└── logs/             # 日志文件（持久化）
+```
+
 ## 架构
 
 ```
