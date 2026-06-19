@@ -89,23 +89,99 @@ async function handleCollect(config: ReturnType<typeof loadConfig>): Promise<voi
   console.log('\n📧 采集邮箱\n');
 
   const sources = config.harvest.sources || ['stargazers'];
-  console.log(`当前采集来源: ${sources.join(', ')}`);
-  console.log(`目标仓库: ${config.harvest.target_repos.length} 个`);
-  console.log(`Topic: ${config.harvest.topics.join(', ')}`);
 
-  const { confirm } = await inquirer.prompt([
+  const { mode } = await inquirer.prompt([
     {
-      type: 'confirm',
-      name: 'confirm',
-      message: '开始采集？',
-      default: true,
+      type: 'list',
+      name: 'mode',
+      message: '选择采集方式:',
+      choices: [
+        { name: '🔗 输入仓库链接（直接采集）', value: 'manual' },
+        { name: '📋 使用配置的仓库列表', value: 'config' },
+        { name: '↩️ 返回', value: 'back' },
+      ],
     },
   ]);
 
-  if (confirm) {
-    console.log('');
-    await collectEmails(config, []);
-    console.log('\n✅ 采集完成');
+  if (mode === 'back') return;
+
+  if (mode === 'manual') {
+    // 手动输入仓库链接
+    const { repoUrl } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'repoUrl',
+        message: '输入 GitHub 仓库链接:',
+        placeholder: 'https://github.com/owner/repo 或 owner/repo',
+        validate: (input: string) => {
+          if (!input.trim()) return '请输入仓库链接';
+          // 验证格式
+          const httpsMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+          const slashMatch = input.trim().match(/^([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)$/);
+          if (httpsMatch || slashMatch) return true;
+          return '格式不正确，支持: https://github.com/owner/repo 或 owner/repo';
+        },
+      },
+    ]);
+
+    // 解析仓库地址
+    let repo = repoUrl.trim();
+    const httpsMatch = repo.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (httpsMatch) {
+      repo = `${httpsMatch[1]}/${httpsMatch[2]}`;
+    }
+
+    const { sources: chosenSources } = await inquirer.prompt([
+      {
+        type: 'checkbox',
+        name: 'sources',
+        message: '选择采集来源:',
+        choices: [
+          { name: '⭐ Stargazers（关注者）', value: 'stargazers', checked: true },
+          { name: '📝 Issues（参与者）', value: 'issues', checked: true },
+          { name: '🔀 PRs（贡献者）', value: 'pulls', checked: true },
+          { name: '🍴 Forks（Fork者）', value: 'forks', checked: true },
+        ],
+      },
+    ]);
+
+    console.log(`\n🔗 仓库: ${repo}`);
+    console.log(`📊 来源: ${sources.join(', ')}`);
+
+    const { confirm } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirm',
+        message: '开始采集？',
+        default: true,
+      },
+    ]);
+
+    if (confirm) {
+      console.log('');
+      await collectEmails(config, ['--repo', repo]);
+      console.log('\n✅ 采集完成');
+    }
+  } else {
+    // 使用配置的仓库
+    console.log(`当前采集来源: ${sources.join(', ')}`);
+    console.log(`目标仓库: ${config.harvest.target_repos.length} 个`);
+    console.log(`Topic: ${config.harvest.topics.join(', ')}`);
+
+    const { confirm } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirm',
+        message: '开始采集？',
+        default: true,
+      },
+    ]);
+
+    if (confirm) {
+      console.log('');
+      await collectEmails(config, []);
+      console.log('\n✅ 采集完成');
+    }
   }
 }
 

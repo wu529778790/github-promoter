@@ -44,6 +44,9 @@ export async function collectEmails(config: AppConfig, flags: string[] = []) {
   const statusOnly = flags.includes('--status');
   const dryRun = flags.includes('--dry-run') || config.debug.dry_run;
 
+  // 解析 --repo 参数（支持 URL 或 owner/repo 格式）
+  const manualRepo = parseRepoFlag(flags);
+
   const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
@@ -67,10 +70,19 @@ export async function collectEmails(config: AppConfig, flags: string[] = []) {
   }
   console.log(`📋 已有 ${existingEmails.size} 个邮箱`);
 
-  // 构建目标仓库列表（固定仓库 + topic 搜索）
-  const fixedRepos = config.harvest.target_repos;
-  const topicRepos = await searchReposByTopic(octokit, config, dryRun);
-  const allRepos = [...new Set([...fixedRepos, ...topicRepos])];
+  // 构建目标仓库列表
+  let allRepos: string[] = [];
+
+  if (manualRepo) {
+    // 手动指定仓库（优先级最高）
+    allRepos = [manualRepo];
+    console.log(`🔗 手动指定仓库: ${manualRepo}`);
+  } else {
+    // 固定仓库 + topic 搜索
+    const fixedRepos = config.harvest.target_repos;
+    const topicRepos = await searchReposByTopic(octokit, config, dryRun);
+    allRepos = [...new Set([...fixedRepos, ...topicRepos])];
+  }
 
   // 断点续采：跳过已处理的仓库
   let processedRepos: string[] = [];
@@ -569,4 +581,56 @@ function showStatus() {
     console.log(`   📦 已处理仓库: ${progress.processedRepos.length} 个`);
     console.log(`   🕐 上次更新: ${progress.timestamp}`);
   }
+}
+
+// ============================================================
+// GitHub URL 解析
+// ============================================================
+
+/**
+ * 解析 --repo 参数
+ *
+ * 支持格式：
+ * - https://github.com/owner/repo
+ * - github.com/owner/repo
+ * - owner/repo
+ *
+ * 返回 owner/repo 格式，或 null（如果没有 --repo 参数）
+ */
+function parseRepoFlag(flags: string[]): string | null {
+  const repoIdx = flags.indexOf('--repo');
+  if (repoIdx === -1 || !flags[repoIdx + 1]) return null;
+
+  const input = flags[repoIdx + 1].trim();
+
+  // 格式 1: https://github.com/owner/repo
+  const httpsMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (httpsMatch) {
+    return `${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+
+  // 格式 2: owner/repo
+  const slashMatch = input.match(/^([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)$/);
+  if (slashMatch) {
+    return `${slashMatch[1]}/${slashMatch[2]}`;
+  }
+
+  console.error(`❌ 无法解析仓库地址: ${input}`);
+  console.error('   支持格式: https://github.com/owner/repo 或 owner/repo');
+  return null;
+}
+
+/**
+ * 从命令行参数解析仓库列表（供外部调用）
+ */
+export function parseReposFromArgs(args: string[]): string[] {
+  const repos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--repo' && args[i + 1]) {
+      const repo = parseRepoFlag(['--repo', args[i + 1]]);
+      if (repo) repos.push(repo);
+      i++; // 跳过下一个参数
+    }
+  }
+  return repos;
 }

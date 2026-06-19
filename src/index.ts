@@ -157,7 +157,9 @@ GitHub Promoter - 开源项目推广工具
   npm run collect -- --resume        断点续采
   npm run collect -- --status        查看采集进度
   npm run collect -- --dry-run       模拟采集
+  npm run collect -- --repo owner/repo   直接采集指定仓库
 
+  npm run ui                         启动交互式管理界面
   npm run preview                    预览邮件内容
   npm run preview -- --count 10      预览 10 封
 
