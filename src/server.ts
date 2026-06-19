@@ -54,32 +54,33 @@ app.get('/api/setup', (req, res) => {
 
 app.post('/api/setup/env', (req, res) => {
   try {
-    const { github_token, smtp_host, smtp_port, smtp_user, smtp_pass } = req.body;
+    const {
+      github_token, smtp_host, smtp_port, smtp_user, smtp_pass,
+      product_name, product_desc, github_repo,
+    } = req.body;
     const lines = [
+      `# GitHub Token`,
       `GITHUB_TOKEN=${github_token || ''}`,
+      ``,
+      `# SMTP 邮箱配置`,
       `SMTP_HOST=${smtp_host || 'smtp.qq.com'}`,
       `SMTP_PORT=${smtp_port || '465'}`,
       `SMTP_USER=${smtp_user || ''}`,
       `SMTP_PASS=${smtp_pass || ''}`,
+      `SMTP_DAILY_LIMIT=200`,
+      ``,
+      `# 产品信息`,
+      `PRODUCT_NAME=${product_name || 'My Project'}`,
+      `PRODUCT_DESC=${product_desc || 'A great open source project'}`,
+      `GITHUB_REPO=${github_repo || ''}`,
+      ``,
+      `# 调试`,
+      `DRY_RUN=false`,
+      `LOG_LEVEL=info`,
     ];
-    writeFileSync(ENV_PATH, lines.join('\n') + '\n');
-    res.json({ ok: true, message: '.env 已保存' });
-  } catch (error: any) {
-    res.json({ ok: false, error: error.message });
-  }
-});
-
-// ============================================================
-// API: 保存完整配置
-// ============================================================
-
-app.post('/api/setup/config', (req, res) => {
-  try {
-    const config = req.body;
-    const yaml = YAML.stringify(config);
-    writeFileSync(CONFIG_PATH, yaml);
+    writeFileSync(ENV_PATH, lines.join('\n'));
     resetConfig();
-    res.json({ ok: true, message: '配置已保存' });
+    res.json({ ok: true, message: '.env 已保存' });
   } catch (error: any) {
     res.json({ ok: false, error: error.message });
   }

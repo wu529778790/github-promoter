@@ -73,19 +73,15 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   harvest: {
     topics: ['ai-tool', 'claude', 'llm'],
-    target_repos: [
-      'anthropics/claude-code',
-      'lobehub/lobe-chat',
-      'labring/FastGPT',
-    ],
+    target_repos: [],
     per_repo_limit: 100,
     rate_limit_threshold: 100,
     sources: ['stargazers', 'issues', 'pulls', 'forks'],
   },
   email_content: {
-    product_name: 'Your Project',
-    product_description: '一个不错的开源项目',
-    github_repo_url: 'https://github.com/wu529778790/open-im',
+    product_name: 'My Project',
+    product_description: 'A great open source project',
+    github_repo_url: '',
   },
   debug: {
     dry_run: false,
@@ -100,31 +96,25 @@ const DEFAULT_CONFIG: AppConfig = {
 let _config: AppConfig | null = null;
 
 /**
- * 加载配置文件（带缓存）
+ * 加载配置（优先 .env，可选 config.yaml 补充）
  */
 export function loadConfig(configPath?: string): AppConfig {
   if (_config) return _config;
 
-  const yamlPath = configPath || join(PROJECT_ROOT, 'config', 'config.yaml');
+  // 1. 从 .env 构建基础配置
+  _config = configFromEnv();
 
+  // 2. 如果有 config.yaml，合并高级配置（可选）
+  const yamlPath = configPath || join(PROJECT_ROOT, 'config', 'config.yaml');
   if (existsSync(yamlPath)) {
     try {
       const raw = readFileSync(yamlPath, 'utf-8');
       const fileConfig = YAML.parse(raw) as Partial<AppConfig>;
-      _config = mergeConfig(DEFAULT_CONFIG, fileConfig);
-      console.log(`📋 已加载配置: ${yamlPath}`);
-    } catch (error) {
-      console.warn(`⚠️ 配置文件解析失败，使用默认配置:`, error);
-      _config = { ...DEFAULT_CONFIG };
+      _config = mergeConfig(_config, fileConfig);
+    } catch {
+      // 忽略 config.yaml 解析错误
     }
-  } else {
-    // 回退到环境变量模式
-    _config = configFromEnv();
-    console.log('📋 未找到 config.yaml，使用环境变量配置');
   }
-
-  // 环境变量覆盖（优先级最高）
-  applyEnvOverrides(_config);
 
   return _config;
 }
@@ -137,21 +127,43 @@ export function resetConfig(): void {
 }
 
 /**
- * 从环境变量构建配置（向后兼容）
+ * 从环境变量构建配置
+ *
+ * 支持的 .env 变量：
+ * GITHUB_TOKEN    - GitHub Token
+ * SMTP_HOST       - SMTP 服务器
+ * SMTP_PORT       - SMTP 端口
+ * SMTP_USER       - 发件邮箱
+ * SMTP_PASS       - 邮箱密码/授权码
+ * SMTP_DAILY_LIMIT - 每日发送限制
+ * PRODUCT_NAME    - 产品名称
+ * PRODUCT_DESC    - 产品描述
+ * GITHUB_REPO     - 项目 GitHub 地址
+ * DRY_RUN         - 模拟模式
  */
 function configFromEnv(): AppConfig {
+  const sender: SenderConfig = {
+    name: process.env.SMTP_USER?.split('@')[0] || '',
+    email: process.env.SMTP_USER || '',
+    smtp_server: process.env.SMTP_HOST || 'smtp.qq.com',
+    smtp_port: parseInt(process.env.SMTP_PORT || '465', 10),
+    password: process.env.SMTP_PASS || '',
+    daily_limit: parseInt(process.env.SMTP_DAILY_LIMIT || '200', 10),
+    status: 'active',
+  };
+
   return {
     ...DEFAULT_CONFIG,
-    senders: [
-      {
-        name: process.env.SMTP_USER || '',
-        email: process.env.SMTP_USER || '',
-        smtp_server: process.env.SMTP_HOST || 'smtp.qq.com',
-        smtp_port: parseInt(process.env.SMTP_PORT || '465', 10),
-        password: process.env.SMTP_PASS || '',
-        daily_limit: parseInt(process.env.SMTP_DAILY_LIMIT || '200', 10),
-      },
-    ],
+    senders: sender.email ? [sender] : [],
+    email_content: {
+      product_name: process.env.PRODUCT_NAME || DEFAULT_CONFIG.email_content.product_name,
+      product_description: process.env.PRODUCT_DESC || DEFAULT_CONFIG.email_content.product_description,
+      github_repo_url: process.env.GITHUB_REPO || DEFAULT_CONFIG.email_content.github_repo_url,
+    },
+    debug: {
+      dry_run: process.env.DRY_RUN === 'true',
+      log_level: process.env.LOG_LEVEL || 'info',
+    },
   };
 }
 
@@ -159,37 +171,11 @@ function configFromEnv(): AppConfig {
  * 环境变量覆盖（最高优先级）
  */
 function applyEnvOverrides(config: AppConfig): void {
-  // SMTP 覆盖（兼容单发件人模式）
-  if (process.env.SMTP_HOST && config.senders.length <= 1) {
-    if (config.senders.length === 0) {
-      config.senders.push({
-        name: '',
-        email: '',
-        smtp_server: '',
-        smtp_port: 465,
-        password: '',
-        daily_limit: 200,
-      });
-    }
-    config.senders[0].smtp_server = process.env.SMTP_HOST;
-  }
-
-  if (process.env.SMTP_PORT && config.senders.length >= 1) {
-    config.senders[0].smtp_port = parseInt(process.env.SMTP_PORT, 10);
-  }
-
-  if (process.env.SMTP_USER && config.senders.length >= 1) {
-    config.senders[0].email = process.env.SMTP_USER;
-    config.senders[0].name = config.senders[0].name || process.env.SMTP_USER;
-  }
-
-  if (process.env.SMTP_PASS && config.senders.length >= 1) {
-    config.senders[0].password = process.env.SMTP_PASS;
-  }
-
-  // 调试模式覆盖
   if (process.env.DRY_RUN === 'true') {
     config.debug.dry_run = true;
+  }
+  if (process.env.LOG_LEVEL) {
+    config.debug.log_level = process.env.LOG_LEVEL;
   }
 }
 
