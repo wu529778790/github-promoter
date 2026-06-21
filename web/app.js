@@ -271,12 +271,12 @@ async function loadSendStatus() {
 // ============================================================
 
 async function loadConfigPage() {
-  const result = await api('/api/config');
+  const result = await api('/api/env');
   const editor = document.getElementById('config-editor');
   if (result.ok && result.data) {
-    editor.value = result.data; // 已经是 YAML 字符串
+    editor.value = result.data;
   } else if (result.ok) {
-    editor.value = '# 未找到 config.yaml\n# 请先复制 config/config.yaml.example\n';
+    editor.value = '# .env 文件不存在\n# 点击保存将创建默认配置\n';
   } else {
     editor.value = `# 错误: ${result.error}`;
   }
@@ -285,23 +285,18 @@ async function loadConfigPage() {
 async function saveConfig() {
   const content = document.getElementById('config-editor').value;
   try {
-    // 简单验证 YAML 格式
-    const config = parseSimpleYaml(content);
-    const result = await api('/api/config', {
+    const result = await api('/api/env', {
       method: 'POST',
-      body: JSON.stringify(config),
+      body: JSON.stringify({ content }),
     });
     showStatus('config-status', result.ok ? '✅ 配置已保存' : `❌ ${result.error}`, result.ok ? 'success' : 'error');
+    if (result.ok) {
+      // 刷新配置状态
+      loadSetupStatus();
+    }
   } catch (e) {
-    showStatus('config-status', `❌ YAML 格式错误: ${e.message}`, 'error');
+    showStatus('config-status', `❌ 保存失败: ${e.message}`, 'error');
   }
-}
-
-// 简单的 YAML 解析（用于验证）
-function parseSimpleYaml(text) {
-  // 这里只是简单检查，实际保存由后端 YAML 库处理
-  if (!text.trim()) throw new Error('配置为空');
-  return text; // 直接传给后端解析
 }
 
 // ============================================================

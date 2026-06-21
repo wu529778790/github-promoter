@@ -236,7 +236,7 @@ app.get('/api/status', (req, res) => {
 });
 
 // ============================================================
-// API: 获取配置
+// API: 获取配置（config.yaml）
 // ============================================================
 
 app.get('/api/config', (req, res) => {
@@ -248,6 +248,37 @@ app.get('/api/config', (req, res) => {
     } else {
       res.json({ ok: true, data: null, message: '未找到 config.yaml' });
     }
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+// ============================================================
+// API: 获取/保存 .env 文件
+// ============================================================
+
+app.get('/api/env', (_req, res) => {
+  try {
+    if (existsSync(ENV_PATH)) {
+      const raw = readFileSync(ENV_PATH, 'utf-8');
+      res.json({ ok: true, data: raw });
+    } else {
+      res.json({ ok: true, data: '', message: '未找到 .env 文件' });
+    }
+  } catch (error: any) {
+    res.json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/api/env', (req, res) => {
+  try {
+    const { content } = req.body;
+    if (typeof content !== 'string') {
+      return res.json({ ok: false, error: '内容格式错误' });
+    }
+    writeFileSync(ENV_PATH, content);
+    resetConfig();
+    res.json({ ok: true, message: '.env 已保存' });
   } catch (error: any) {
     res.json({ ok: false, error: error.message });
   }

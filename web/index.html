@@ -197,7 +197,11 @@
       <div id="page-config" class="page">
         <h1>配置管理</h1>
         <div class="card">
-          <h2>config.yaml</h2>
+          <h2>.env 环境变量</h2>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;">
+            基础配置（GitHub Token、SMTP 邮箱、产品信息）<br>
+            高级配置（采集策略、邮件间隔等）请编辑 config/config.yaml
+          </p>
           <textarea id="config-editor" class="config-editor" rows="30"></textarea>
           <div class="config-actions">
             <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
