@@ -51,7 +51,7 @@ app.use(express.static(WEB_DIR, {
 // 鉴权：仅允许指定 GitHub 用户访问
 // ============================================================
 
-const ALLOWED_GITHUB_USER = process.env.ALLOWED_GITHUB_USER || 'wu529778790';
+const ALLOWED_GITHUB_USERS = (process.env.ALLOWED_GITHUB_USER || 'wu529778790').split(',').map(s => s.trim());
 
 // 存储当前登录用户的 GitHub 信息
 let githubUser: { login: string; token: string; avatar: string } | null = null;
@@ -60,7 +60,7 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   if (!githubUser) {
     return res.status(401).json({ ok: false, error: '请先登录 GitHub' });
   }
-  if (githubUser.login !== ALLOWED_GITHUB_USER) {
+  if (!ALLOWED_GITHUB_USERS.includes(githubUser.login)) {
     return res.status(403).json({ ok: false, error: '无权访问' });
   }
   next();
@@ -278,12 +278,12 @@ app.get('/auth/github/callback', async (req, res) => {
     const userData = await userRes.json() as any;
 
     // 校验是否为授权用户
-    if (userData.login !== ALLOWED_GITHUB_USER) {
+    if (!ALLOWED_GITHUB_USERS.includes(userData.login)) {
       return res.send(`
         <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
           <h2>🚫 无权访问</h2>
           <p>当前 GitHub 账号 <b>${userData.login}</b> 无权使用本系统。</p>
-          <p>仅允许 <b>${ALLOWED_GITHUB_USER}</b> 登录。</p>
+          <p>仅允许以下账号登录：<b>${ALLOWED_GITHUB_USERS.join(', ')}</b></p>
           <script>setTimeout(() => window.close(), 2000);</script>
         </body></html>
       `);
@@ -316,7 +316,7 @@ app.get('/auth/github/callback', async (req, res) => {
 
 app.get('/api/auth/github/status', (_req, res) => {
   if (githubUser) {
-    const authorized = githubUser.login === ALLOWED_GITHUB_USER;
+    const authorized = ALLOWED_GITHUB_USERS.includes(githubUser.login);
     res.json({ ok: true, data: { loggedIn: true, authorized, login: githubUser.login, avatar: githubUser.avatar } });
   } else {
     res.json({ ok: true, data: { loggedIn: false, authorized: false } });
