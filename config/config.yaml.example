@@ -69,10 +69,10 @@ harvest:
     # 添加更多相关仓库...
 
   # 每个仓库每个来源最多采集的数量
-  per_repo_limit: 50
+  per_repo_limit: 100
 
   # GitHub API 速率限制阈值（低于此值时放慢请求）
-  rate_limit_threshold: 200
+  rate_limit_threshold: 100
 
 # =============================================
 # 推广内容配置（必填）

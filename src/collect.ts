@@ -43,7 +43,6 @@ export async function collectEmails(config: AppConfig, flags: string[] = []) {
   const resume = flags.includes('--resume');
   const statusOnly = flags.includes('--status');
   const dryRun = flags.includes('--dry-run') || config.debug.dry_run;
-  const forceTimeWindow = flags.includes('--force'); // 跳过时间窗口检查
 
   // 解析 --repo 参数（支持 URL 或 owner/repo 格式）
   const manualRepo = parseRepoFlag(flags);
@@ -51,13 +50,6 @@ export async function collectEmails(config: AppConfig, flags: string[] = []) {
   const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN,
   });
-
-  // 安全策略：工作时间窗口检查（防封）
-  if (!forceTimeWindow && !isWithinWorkHours()) {
-    console.log(`⏰ 当前不在工作时间段 (09:00-18:00)，为防封暂停采集`);
-    console.log(`   如需强制采集，请加 --force 参数`);
-    return;
-  }
 
   // 确保数据目录存在
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
@@ -479,24 +471,23 @@ async function dynamicDelay(octokit: Octokit, threshold: number): Promise<void> 
     const rateLimit = await octokit.rateLimit.get();
     const remaining = rateLimit.data.resources.core.remaining;
 
-    let baseDelay: number;
+    let delay: number;
     if (remaining > 4000) {
-      baseDelay = 2000;
+      delay = 500;
     } else if (remaining > 2000) {
-      baseDelay = 3000;
+      delay = 1000;
     } else if (remaining > threshold) {
-      baseDelay = 5000;
+      delay = 2000;
     } else {
-      baseDelay = 8000;
+      delay = 3000;
       console.log(`   ⚠️ API 配额较低 (${remaining} 剩余)，放慢请求速度`);
     }
 
-    // 随机抖动 ±30%，避免固定节奏被检测
-    const jitter = baseDelay * (0.7 + Math.random() * 0.6);
+    // 随机抖动 ±30%
+    const jitter = delay * (0.7 + Math.random() * 0.6);
     await new Promise(resolve => setTimeout(resolve, jitter));
   } catch {
-    const jitter = 2000 + Math.random() * 1000;
-    await new Promise(resolve => setTimeout(resolve, jitter));
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 }
 
@@ -644,20 +635,4 @@ export function parseReposFromArgs(args: string[]): string[] {
     }
   }
   return repos;
-}
-
-// ============================================================
-// 安全策略：工作时间窗口
-// ============================================================
-
-/**
- * 检查当前是否在工作时间内（09:00-18:00 Asia/Shanghai）
- * 非工作时间暂停采集，降低被检测风险
- */
-function isWithinWorkHours(): boolean {
-  const now = new Date();
-  // 转换到 Asia/Shanghai 时区
-  const shanghaiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-  const hour = shanghaiTime.getHours();
-  return hour >= 9 && hour < 18;
 }
