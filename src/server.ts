@@ -288,9 +288,8 @@ app.get('/auth/github/callback', async (req, res) => {
       avatar: userData.avatar_url,
     };
 
-    // 保存 token 到 .env
-    writeEnvFile({ GITHUB_TOKEN: token });
-    resetConfig();
+    // 直接更新运行时环境变量（不写磁盘，兼容 Docker 无写权限场景）
+    process.env.GITHUB_TOKEN = token;
 
     // 重定向回首页
     const safeLogin = userData.login.replace(/[^a-zA-Z0-9-]/g, '');
