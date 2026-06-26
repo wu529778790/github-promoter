@@ -52,6 +52,8 @@ app.use(express.static(WEB_DIR, {
 // ============================================================
 
 const ALLOWED_GITHUB_USERS = (process.env.ALLOWED_GITHUB_USER || 'wu529778790').split(',').map(s => s.trim());
+console.log('[Auth] ALLOWED_GITHUB_USER =', process.env.ALLOWED_GITHUB_USER);
+console.log('[Auth] parsed users =', ALLOWED_GITHUB_USERS);
 
 // 存储当前登录用户的 GitHub 信息
 let githubUser: { login: string; token: string; avatar: string } | null = null;
@@ -278,6 +280,7 @@ app.get('/auth/github/callback', async (req, res) => {
     const userData = await userRes.json() as any;
 
     // 校验是否为授权用户
+    console.log('[Auth] login attempt:', userData.login, '| allowed:', ALLOWED_GITHUB_USERS);
     if (!ALLOWED_GITHUB_USERS.includes(userData.login)) {
       return res.send(`
         <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
